@@ -7,7 +7,15 @@ from typing import Optional, Set, Tuple, Union, Any
 
 import numpy as np
 import torch
-
+import sys
+try:
+    # Use rich tqdm only in interactive mode
+    if sys.stdout.isatty():
+        from tqdm.rich import tqdm, trange
+    else:
+        from tqdm import tqdm, trange
+except ImportError:
+    from tqdm import tqdm, trange
 from retrieval import dist_utils
 
 DTYPE_TO_TORCH_DTYPE = {
@@ -20,14 +28,12 @@ class DistributedIndex(object):
     def __init__(self, dtype=torch.float32):
         self.embeddings = None
         self.doc_map = dict()
-        self.is_in_gpu = True if torch.cuda.is_available() else False
         self.dtype = dtype
 
     def init_embeddings(self, passages, dim: Optional[int]):
         self.doc_map = {i: doc for i, doc in enumerate(passages)}
         self.embeddings = torch.zeros(dim, (len(passages)), dtype=self.dtype)
-        if self.is_in_gpu:
-            self.embeddings = self.embeddings.cuda()
+        # Embeddings are created on CPU by default, use to_gpu() for explicit GPU movement
 
     def _get_saved_embedding_path(self, save_dir: str, shard: int) -> str:
         return os.path.join(save_dir, f"embeddings.{shard}.pt")
@@ -69,7 +75,7 @@ class DistributedIndex(object):
         """
         rank = dist_utils.get_rank()
         ws = dist_utils.get_world_size()
-        assert total_saved_shards % ws == 0, f"N workers must be a multiple of shards to save"
+        assert total_saved_shards % ws == 0, "N workers must be a multiple of shards to save"
         shards_per_worker = total_saved_shards // ws
         passages = []
         embeddings = []
@@ -78,10 +84,8 @@ class DistributedIndex(object):
             with open(passage_shard_path, "rb") as fobj:
                 passages.append(pickle.load(fobj))
             embeddings_shard_path = self._get_saved_embedding_path(path, shard_id)
-            if self.is_in_gpu:
-                embeddings.append(torch.load(embeddings_shard_path, map_location="cpu").cuda())
-            else:
-                embeddings.append(torch.load(embeddings_shard_path, map_location="cpu"))
+            # Always load to CPU initially, use to_gpu() for explicit GPU movement
+            embeddings.append(torch.load(embeddings_shard_path, map_location="cpu"))
         self.doc_map = {}
         n_passages = 0
         for chunk in passages:
@@ -143,59 +147,34 @@ class DistributedIndex(object):
     def is_index_trained(self) -> bool:
         return True
     
-def load_passages(filenames, maxload=-1):
-    """ 
-    Returns a list of passages. Each passage is a dict with the following keys:
-    {
-        "_id:" doc0,
-        "title": "Title 1",
-        "text": "Body text 1",
-    }
-    """
-    def process_jsonl(
-        fname,
-        counter,
-        passages,
-        world_size,
-        global_rank,
-        maxload,
-    ):
-        def load_item(line):
-            if line.strip() != "":
-                item = json.loads(line)
-                if "title" in item and "section" in item and len(item["section"]) > 0:
-                    item["title"] = f"{item['title']}: {item['section']}"
-                return item
+    def to_gpu(self):
+        """
+        Explicitly move embeddings to GPU if available.
+        """
+        if torch.cuda.is_available() and self.embeddings is not None:
+            if self.embeddings.device != "cuda":
+                self.embeddings = self.embeddings.cuda()
+                print("Moved embeddings to GPU")
             else:
-                print("empty line")
-
-        for line in open(fname):
-            if maxload > -1 and counter >= maxload:
-                break
-
-            ex = None
-            if (counter % world_size) == global_rank:
-                ex = load_item(line)
-                passages.append(ex)
-            counter += 1
-        return passages, counter
-
-    counter = 0
-    passages = []
-    global_rank = dist_utils.get_rank()
-    world_size = dist_utils.get_world_size()
-    for filename in filenames:
-
-        passages, counter = process_jsonl(
-            filename,
-            counter,
-            passages,
-            world_size,
-            global_rank,
-            maxload,
-        )
-
-    return passages
+                print("Embeddings already on GPU")
+        else:
+            if not torch.cuda.is_available():
+                print("CUDA not available, cannot move to GPU")
+            else:
+                print("No embeddings to move to GPU")
+    
+    def to_cpu(self):
+        """
+        Explicitly move embeddings to CPU.
+        """
+        if self.embeddings is not None:
+            if self.embeddings.device != "cpu":
+                self.embeddings = self.embeddings.cpu()
+                print("Moved embeddings to CPU")
+            else:
+                print("Embeddings already on CPU")
+        else:
+            print("No embeddings to move to CPU")
 
 def load_or_initialize_index(load_index_path=None, dim=None, index_dtype='bfloat16', save_index_n_shards=1, passages=None, limit=None, customd=None):
     """
@@ -211,11 +190,8 @@ def load_or_initialize_index(load_index_path=None, dim=None, index_dtype='bfloat
     if load_index_path is not None:
         print(f"Loading index from: {load_index_path}")
         index.load_index(load_index_path, save_index_n_shards)
-        passages = [index.doc_map[i] for i in range(len(index.doc_map))]
+        passages = [index.doc_map[i] for i in tqdm(range(len(index.doc_map)))]
     else:
-        print(f"Loading passages from: {passages}")
-        passages = load_passages(passages)
-        print(f"Loaded {len(passages)} passages")
         if limit is not None:            
             passages = passages[:limit]
             print(f"Limiting to {len(passages)} passages")
@@ -225,25 +201,63 @@ def load_or_initialize_index(load_index_path=None, dim=None, index_dtype='bfloat
                     passages = [{"text": f.read(), "title": ""}]
             else: # Is number
                 passages = [{"text": "<s>" * int(customd), "title": ""}]
-        print(f"Example passage: {passages[0]}")
+        # print(f"Example passage: {passages[0]}")
         index.init_embeddings(passages, dim)
 
     return index, passages
 
 @torch.no_grad()
-def build_index(model, index, passages, gpu_embedder_batch_size=512):
+def build_index(model, index, passages, gpu_embedder_batch_size=512, accumulation_batches=10):
+    """
+    Build index with batch accumulation to reduce transfer overhead.
+    
+    Args:
+        accumulation_batches: Number of batches to accumulate before transferring to index
+    """
     n_batch = math.ceil(len(passages) / gpu_embedder_batch_size)
     total = 0
-    for i in range(n_batch):
+    encode_kwargs = {}
+    
+    # Check dtype/device compatibility once at the start
+    index_device = index.embeddings.device
+    index_dtype = index.dtype
+    
+    # Always use accumulation strategy
+    embeddings_list = []
+    batch_sizes = []
+    
+    for i in trange(n_batch, desc=f"Encoding passages [bs={gpu_embedder_batch_size} acc={accumulation_batches}]"):
         batch = passages[i * gpu_embedder_batch_size : (i + 1) * gpu_embedder_batch_size]
         #, instruction=gritlm_instruction_format())
-        if hasattr(model, "encode_corpus"):
-            embeddings = model.encode_corpus(batch, batch_size=gpu_embedder_batch_size, convert_to_tensor=True)
+        embeddings = model.encode(batch, batch_size=gpu_embedder_batch_size, convert_to_tensor=True, **encode_kwargs)
+        
+        if not isinstance(embeddings, torch.Tensor):
+            if i == 0: 
+                print(f"model.encode returned non-tensor of type {type(embeddings)} when convert_to_tensor=True")
+            embeddings = torch.tensor(embeddings, dtype=index_dtype, device=index_device)
         else:
-            embeddings = model.encode(batch, batch_size=gpu_embedder_batch_size, convert_to_tensor=True)
-        index.embeddings[:, total : total + len(embeddings)] = embeddings.T.to(index.dtype)
-        total += len(embeddings)
-        if i % 500 == 0 and i > 0:
-            print(f"Number of passages encoded: {total}")
+            # Warn about dtype mismatch only once
+            if i == 0 and embeddings.dtype != index_dtype:
+                print(f"embeddings.dtype: {embeddings.dtype}, embeddings.device: {embeddings.device}")
+                print(f"index.dtype: {index_dtype}, index.embeddings.device: {index_device}")
+                print(f"WARNING: {embeddings.dtype=} != {index_dtype=}, converting embeddings to index.dtype at every batch is slow")
+            
+            # Keep original dtype for accumulation, convert at transfer time
+            embeddings_list.append(embeddings.T)  # Transpose on current device
+            batch_sizes.append(len(embeddings))
+            
+            # Transfer accumulated batches when we hit the accumulation limit or at the end
+            if len(embeddings_list) >= accumulation_batches or i == n_batch - 1:
+                # Concatenate on current device, then convert dtype + device in one operation
+                accumulated_embeddings = torch.cat(embeddings_list, dim=1)
+                accumulated_size = sum(batch_sizes)
+                
+                # Single conversion: dtype + device transfer
+                index.embeddings[:, total : total + accumulated_size] = accumulated_embeddings.to(dtype=index_dtype, device=index_device)
+                
+                total += accumulated_size
+                embeddings_list.clear()
+                batch_sizes.clear()
+                
     dist_utils.barrier()
     print(f"{total} passages encoded on process: {dist_utils.get_rank()}")

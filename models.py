@@ -3,19 +3,21 @@ import os
 import math
 import random
 import threading
-
 import mteb
 import spaces
 import torch
-
+from typing import Optional
+from loguru import logger
 from log_utils import build_logger
 from retrieval.index import build_index, load_or_initialize_index
 from retrieval.index import DistributedIndex
 from retrieval.gcp_index import VertexIndex
 from retrieval.bm25_index import BM25Index
+from retrieval.common import load_passages, CORPORA
 from clustering_samples import CLUSTERING_CATEGORIES
 
-logger = build_logger("model_logger", "model_logger.log")
+# logger = build_logger("model_logger", "model_logger.log")
+logger.disable("")
 
 # If 8 GPUs
 MODEL_TO_CUDA_DEVICE = {
@@ -45,11 +47,7 @@ MODEL_TO_CUDA_DEVICE = {
     "mixedbread-ai/mxbai-embed-large-v1": "0",
 }
 
-CORPUS_TO_FORMAT = {
-    "arxiv": "Title: {title}\n\nAbstract: {text}",
-    "wikipedia": "{title}\n\n{text}",
-    "stackexchange": "{text}",
-}
+CORPUS_TO_FORMAT = {corpus_name : meta["format"] for corpus_name, meta in CORPORA.items()}
 
 class ModelManager:
     def __init__(self, model_meta, use_gcp_index: bool = False, load_all: bool = False):
@@ -85,18 +83,20 @@ class ModelManager:
             # Load GCP indices
             if use_gcp_index:
                 for model_name in self.models_retrieval:
-                    if model_name == "BM25": continue
+                    if model_name == "BM25": 
+                        continue
                     self.load_gcp_index(model_name, "wikipedia")
                     self.load_gcp_index(model_name, "arxiv")
                 for model_name in self.models_retrieval_stackexchange:
-                    if model_name == "BM25": continue
+                    if model_name == "BM25": 
+                        continue
                     self.load_gcp_index(model_name, "stackexchange")
             # Load random samples
             self.retrieve_draw()
             self.clustering_draw()
             self.sts_draw()
 
-    def load_model(self, model_name):
+    def load_model(self, model_name, device : Optional[torch.device] = None):
         if model_name in self.loaded_models:
             return self.loaded_models[model_name]
         # Do not allow this function to be run by processes in parallel but always one by one
@@ -104,17 +104,22 @@ class ModelManager:
         # so if two models are loaded in parallel & have different dtypes, one will have the wrong dtype
         with self.lock:
             logger.info(f"Loading & caching model: {model_name}")
-            device = "cpu"
-            if torch.cuda.is_available():
-                device = "cuda"
-                if model_name in MODEL_TO_CUDA_DEVICE:
-                    device += ":" + MODEL_TO_CUDA_DEVICE[model_name]
+
+            if device is None:
+                device = "cpu"
+                if torch.cuda.is_available():
+                    device = "cuda"
+                    if model_name in MODEL_TO_CUDA_DEVICE:
+                        device += ":" + MODEL_TO_CUDA_DEVICE[model_name]
+
+            logger.info(f"Loading {model_name} on {device=}")
             model = mteb.get_model(
                 model_name,
                 revision=self.model_meta[model_name].get("revision", None),
                 device=device,
             )
             self.loaded_models[model_name] = model
+            logger.info(f"Loaded {model_name} on {device=}")
             return model
 
     def load_local_index(self, model_name, corpus, embedbs=32) -> DistributedIndex:
@@ -127,24 +132,28 @@ class ModelManager:
         load_index_path = None
         if os.path.exists(save_path):
             load_index_path = save_path
+        
+        passages = load_passages(origin=corpus, limit=meta.get("limit", None))
+        formatted_passages = [CORPORA[corpus]["format"].format(**p) for p in passages]
 
         index, passages = load_or_initialize_index(
             load_index_path=load_index_path,
             dim=meta.get("dim", None),
             limit=meta.get("limit", None),
             index_dtype=meta.get("index_dtype", "bfloat16"),
-            passages=["corpus.jsonl"],
+            save_index_n_shards=meta.get("index_shards", 1),
+            passages=formatted_passages,
         )
 
         if load_index_path is None:
             build_index(
                 self.loaded_models[model_name],
                 index,
-                passages,
+                formatted_passages,
                 gpu_embedder_batch_size=embedbs,
             )
             os.makedirs(save_path, exist_ok=True)
-            index.save_index(save_path)
+            index.save_index(save_path, total_saved_shards=meta.get("index_shards", 1))
 
         self.loaded_indices.setdefault(model_name, {})
         self.loaded_indices[model_name][corpus] = index

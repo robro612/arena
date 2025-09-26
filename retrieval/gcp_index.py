@@ -8,7 +8,9 @@ from google.cloud import aiplatform, storage
 from .common import load_passages_from_hf
 from log_utils import build_logger
 
-logger = build_logger("index_logger", "index_logger.log")
+# logger = build_logger("index_logger", "index_logger.log")
+from loguru import logger
+logger.disable("")
 
 
 def model_name_as_path(model_name) -> str:
