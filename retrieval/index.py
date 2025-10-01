@@ -207,7 +207,7 @@ def load_or_initialize_index(load_index_path=None, dim=None, index_dtype='bfloat
     return index, passages
 
 @torch.no_grad()
-def build_index(model, index, passages, gpu_embedder_batch_size=512, accumulation_batches=10):
+def build_index(model, index, passages, gpu_embedder_batch_size=512, accumulation_batches=20):
     """
     Build index with batch accumulation to reduce transfer overhead.
     
@@ -216,7 +216,7 @@ def build_index(model, index, passages, gpu_embedder_batch_size=512, accumulatio
     """
     n_batch = math.ceil(len(passages) / gpu_embedder_batch_size)
     total = 0
-    encode_kwargs = {}
+    encode_kwargs = {"show_progress_bar" : False}
     
     # Check dtype/device compatibility once at the start
     index_device = index.embeddings.device
@@ -229,7 +229,7 @@ def build_index(model, index, passages, gpu_embedder_batch_size=512, accumulatio
     for i in trange(n_batch, desc=f"Encoding passages [bs={gpu_embedder_batch_size} acc={accumulation_batches}]"):
         batch = passages[i * gpu_embedder_batch_size : (i + 1) * gpu_embedder_batch_size]
         #, instruction=gritlm_instruction_format())
-        embeddings = model.encode(batch, batch_size=gpu_embedder_batch_size, convert_to_tensor=True, **encode_kwargs)
+        embeddings = model.encode(batch, convert_to_tensor=True, batch_size=gpu_embedder_batch_size, **encode_kwargs)
         
         if not isinstance(embeddings, torch.Tensor):
             if i == 0: 
@@ -260,4 +260,4 @@ def build_index(model, index, passages, gpu_embedder_batch_size=512, accumulatio
                 batch_sizes.clear()
                 
     dist_utils.barrier()
-    print(f"{total} passages encoded on process: {dist_utils.get_rank()}")
+    print(f"{len(passages)} passages encoded on process: {dist_utils.get_rank()}")
