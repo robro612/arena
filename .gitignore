@@ -13,3 +13,7 @@ MTEB-Arena-logs*
 MTEB-Arena-logs/*
 .vscode
 index_wikipedia*
+.venv
+.env
+logs
+arena_retrieval

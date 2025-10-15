@@ -4,7 +4,7 @@ import math
 import os
 import pickle
 from typing import Optional, Set, Tuple, Union, Any
-
+from tqdm.auto import tqdm, trange
 import numpy as np
 import torch
 import sys
@@ -69,33 +69,87 @@ class DistributedIndex(object):
             embedding_shard_path = self._get_saved_embedding_path(path, shard_id)
             torch.save(embeddings_shard, embedding_shard_path)
 
-    def load_index(self, path: str, total_saved_shards: int):
+    def load_index(self, path: str, dtype : Optional[str] = None, verbose: bool = False):
         """
         Loads sharded embeddings and passages files (no index is loaded).
+        Automatically discovers all embedding and passage shards in the directory.
         """
-        rank = dist_utils.get_rank()
-        ws = dist_utils.get_world_size()
-        assert total_saved_shards % ws == 0, "N workers must be a multiple of shards to save"
-        shards_per_worker = total_saved_shards // ws
+        # Discover all embedding shards (support old and new naming)
+        embedding_entries = []  # list[(shard_id:int, filename:str)]
+        invalid_embedding_filenames = []
+        for f in os.listdir(path):
+            if not f.endswith('.pt') or not f.startswith('embeddings.'):
+                continue
+            parts = f.split('.')
+            # We only care that parts[0] == 'embeddings' and parts[1] is an int
+            if len(parts) >= 3 and parts[0] == 'embeddings' and parts[-1] == 'pt':
+                try:
+                    shard_id = int(parts[1])
+                    embedding_entries.append((shard_id, f))
+                except ValueError:
+                    invalid_embedding_filenames.append(f)
+        if invalid_embedding_filenames:
+            raise ValueError(
+                "Invalid embedding shard filename(s) found (expected 'embeddings.{i}.pt' or 'embeddings.{i}.{total}.pt'):\n"
+                + "\n".join(invalid_embedding_filenames)
+            )
+        embedding_entries.sort(key=lambda x: x[0])
+        total_embedding_shards = len(embedding_entries)
+
+        # Discover all passage shards (old style only for now)
+        passage_entries = []  # list[(shard_id:int, filename:str)]
+        invalid_passage_filenames = []
+        for f in os.listdir(path):
+            if not f.endswith('.pt') or not f.startswith('passages.'):
+                continue
+            parts = f.split('.')
+            # Expect at minimum ['passages', '{i}', 'pt']
+            if len(parts) >= 3 and parts[0] == 'passages' and parts[-1] == 'pt':
+                try:
+                    shard_id = int(parts[1])
+                    passage_entries.append((shard_id, f))
+                except ValueError:
+                    invalid_passage_filenames.append(f)
+        if invalid_passage_filenames:
+            raise ValueError(
+                "Invalid passage shard filename(s) found (expected 'passages.{i}.pt'):\n"
+                + "\n".join(invalid_passage_filenames)
+            )
+        passage_entries.sort(key=lambda x: x[0])
+        total_passage_shards = len(passage_entries)
+        
+        # Load all passage shards
         passages = []
-        embeddings = []
-        for shard_id in range(rank * shards_per_worker, (rank + 1) * shards_per_worker):
-            passage_shard_path = self._get_saved_passages_path(path, shard_id)
+        for shard_id, fname in tqdm(passage_entries, desc="Loading passage shards", disable=not verbose):
+            passage_shard_path = os.path.join(path, fname)
             with open(passage_shard_path, "rb") as fobj:
                 passages.append(pickle.load(fobj))
-            embeddings_shard_path = self._get_saved_embedding_path(path, shard_id)
+        
+        # Load all embedding shards
+        embeddings = []
+        for shard_id, fname in tqdm(embedding_entries, desc="Loading embedding shards", disable=not verbose):
+            embeddings_shard_path = os.path.join(path, fname)
             # Always load to CPU initially, use to_gpu() for explicit GPU movement
-            embeddings.append(torch.load(embeddings_shard_path, map_location="cpu"))
+            shard_embeddings = torch.load(embeddings_shard_path, map_location="cpu", weights_only=True)
+            if dtype is not None:
+                shard_embeddings = shard_embeddings.to(dtype=DTYPE_TO_TORCH_DTYPE[dtype])
+            embeddings.append(shard_embeddings)
+            torch.cuda.empty_cache()
+        
+        # Build doc_map from all passage shards
         self.doc_map = {}
         n_passages = 0
         for chunk in passages:
             for p in chunk:
                 self.doc_map[n_passages] = p
                 n_passages += 1
+        
+        # Concatenate embeddings
         if len(embeddings) > 1:
             self.embeddings = torch.concat(embeddings, dim=1)
         else:
             self.embeddings = embeddings[0]
+        self.dtype = self.embeddings.dtype
 
     def _compute_scores_and_indices(self, allqueries: torch.tensor, topk: int) -> Tuple[torch.tensor, torch.tensor]:
         """
@@ -108,41 +162,50 @@ class DistributedIndex(object):
         return scores, indices
 
     @torch.no_grad()
-    def search_knn(self, queries, topk):
+    def search_knn(self, queries, topk) -> tuple[list[list[str]], list[list[float]], list[list[int]]]:
         """
         Conducts exhaustive search of the k-nearest neighbours using the inner product metric.
+        returns list (query) of list (topk) of docs, list (query) of list (topk) of scores, and list (query) of list (topk) of doc indices
         """
         allqueries = dist_utils.varsize_all_gather(queries)
         allsizes = dist_utils.get_varsize(queries)
         allsizes = np.cumsum([0] + allsizes.cpu().tolist())
         # compute scores for the part of the index located on each process
         scores, indices = self._compute_scores_and_indices(allqueries, topk)
-        indices = indices.tolist()
-        docs = [[self.doc_map[x] for x in sample_indices] for sample_indices in indices]
+        indices_list = indices.tolist()
+        docs = [[self.doc_map[x] for x in sample_indices] for sample_indices in indices_list]
         if torch.distributed.is_initialized():
             docs = [docs[allsizes[k] : allsizes[k + 1]] for k in range(len(allsizes) - 1)]
             docs = [serialize_listdocs(x) for x in docs]
             scores = [scores[allsizes[k] : allsizes[k + 1]] for k in range(len(allsizes) - 1)]
+            indices_chunks = [indices[allsizes[k] : allsizes[k + 1]] for k in range(len(allsizes) - 1)]
             gather_docs = [dist_utils.varsize_gather(docs[k], dst=k, dim=0) for k in range(dist_utils.get_world_size())]
             gather_scores = [
                 dist_utils.varsize_gather(scores[k], dst=k, dim=1) for k in range(dist_utils.get_world_size())
             ]
+            gather_indices = [
+                dist_utils.varsize_gather(indices_chunks[k], dst=k, dim=1) for k in range(dist_utils.get_world_size())
+            ]
             rank_scores = gather_scores[dist_utils.get_rank()]
             rank_docs = gather_docs[dist_utils.get_rank()]
+            rank_indices = gather_indices[dist_utils.get_rank()]
             scores = torch.cat(rank_scores, dim=1)
+            indices = torch.cat(rank_indices, dim=1)
             rank_docs = deserialize_listdocs(rank_docs)
             merge_docs = [[] for _ in range(queries.size(0))]
             for docs in rank_docs:
                 for k, x in enumerate(docs):
                     merge_docs[k].extend(x)
             docs = merge_docs
+            indices_list = indices.tolist()
         _, subindices = torch.topk(scores, topk, dim=1)
         scores = scores.tolist()
         subindices = subindices.tolist()
         # Extract topk scores and associated ids
         scores = [[scores[k][j] for j in idx] for k, idx in enumerate(subindices)]
         docs = [[docs[k][j] for j in idx] for k, idx in enumerate(subindices)]
-        return docs, scores
+        doc_indices = [[indices_list[k][j] for j in idx] for k, idx in enumerate(subindices)]
+        return docs, scores, doc_indices
 
     def is_index_trained(self) -> bool:
         return True
