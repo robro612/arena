@@ -1,0 +1,221 @@
+model_meta:
+  Alibaba-NLP/gte-Qwen2-7B-instruct:
+    desc: gte-Qwen2-7B-instruct by Alibaba
+    dim: 3584
+    dtype: float16
+    instruction_clustering: Identify the topic/theme/category of the text
+    instruction_query_arxiv: Given a query, retrieve a relevant paper title and abstract
+      from arXiv
+    instruction_query_stackexchange: Given a query, retrieve a relevant question and
+      answer from Stack Exchange
+    instruction_query_wikipedia: Given a query, retrieve a relevant title and passage
+      from Wikipedia
+    instruction_sts: Retrieve semantically similar text
+    license: Apache 2.0
+    link: https://huggingface.co/Alibaba-NLP/gte-Qwen2-7B-instruct
+    mteb_clustering: 56.92
+    mteb_overall: 70.24
+    mteb_retrieval: 60.25
+    mteb_sts: 83.04
+    organization: Alibaba
+    revision: e26182b2122f4435e8b3ebecbf363990f409b45b
+    seq_len: 131072
+    size: 7613
+  BAAI/bge-large-en-v1.5:
+    desc: bge-large-en-v1.5 by BAAI
+    dim: 1024
+    license: MIT
+    link: https://huggingface.co/BAAI/bge-large-en-v1.5
+    mteb_clustering: 46.08
+    mteb_overall: 64.23
+    mteb_retrieval: 54.29
+    mteb_sts: 83.11
+    organization: BAAI
+    revision: d4aa6901d3a41ba39fb536a557fa166f842b0e09
+    seq_len: 512
+    size: 335
+  BM25:
+    desc: Fast lexical search via BM25
+    license: MIT
+    link: https://github.com/xhluca/bm25s
+    mteb_retrieval: 42.4
+  GritLM/GritLM-7B:
+    desc: GritLM-7B by Contextual AI, HKU, Microsoft
+    dim: 4096
+    instruction_clustering: Identify the topic/theme/category of the text
+    instruction_query_arxiv: Given a query, retrieve a relevant paper title and abstract
+      from arXiv
+    instruction_query_stackexchange: Given a query, retrieve a relevant question and
+      answer from Stack Exchange
+    instruction_query_wikipedia: Given a query, retrieve a relevant title and passage
+      from Wikipedia
+    instruction_sts: Retrieve semantically similar text
+    license: Apache 2.0
+    link: https://huggingface.co/GritLM/GritLM-7B
+    mteb_clustering: 50.61
+    mteb_overall: 66.76
+    mteb_retrieval: 57.41
+    mteb_sts: 83.35
+    organization: Contextual AI, HKU, Microsoft
+    revision: 13f00a0e36500c80ce12870ea513846a066004af
+    seq_len: 32768
+    size: 7240
+  Salesforce/SFR-Embedding-2_R:
+    desc: SFR-Embedding-2_R by Salesforce
+    dim: 4096
+    instruction_clustering: Identify the topic/theme/category of the text
+    instruction_query_arxiv: Given a query, retrieve a relevant paper title and abstract
+      from arXiv
+    instruction_query_stackexchange: Given a query, retrieve a relevant question and
+      answer from Stack Exchange
+    instruction_query_wikipedia: Given a query, retrieve a relevant title and passage
+      from Wikipedia
+    instruction_sts: Retrieve semantically similar text
+    license: CC-BY-NC-4.0
+    link: https://huggingface.co/Salesforce/SFR-Embedding-2_R
+    mteb_clustering: 56.17
+    mteb_overall: 70.31
+    mteb_retrieval: 60.18
+    mteb_sts: 81.26
+    organization: Salesforce
+    revision: 91762139d94ed4371a9fa31db5551272e0b83818
+    seq_len: 32768
+    size: 7111
+  embed-english-v3.0:
+    desc: embed-english-v3.0 by Cohere
+    dim: 1024
+    license: Proprietary
+    link: https://docs.cohere.com/docs/cohere-embed
+    mteb_clustering: 47.43
+    mteb_overall: 64.47
+    mteb_retrieval: 55
+    mteb_sts: 82.62
+    organization: Cohere
+    revision: '1'
+    seq_len: 512
+  intfloat/e5-mistral-7b-instruct:
+    desc: e5-mistral-7b-instruct by Microsoft
+    dim: 4096
+    instruction_clustering: Identify the topic/theme/category of the text
+    instruction_query_arxiv: Given a query, retrieve a relevant paper title and abstract
+      from arXiv
+    instruction_query_stackexchange: Given a query, retrieve a relevant question and
+      answer from Stack Exchange
+    instruction_query_wikipedia: Given a query, retrieve a relevant title and passage
+      from Wikipedia
+    instruction_sts: Retrieve semantically similar text
+    license: MIT License
+    link: https://huggingface.co/intfloat/e5-mistral-7b-instruct
+    mteb_clustering: 50.26
+    mteb_overall: 66.63
+    mteb_retrieval: 56.89
+    mteb_sts: 84.63
+    organization: Microsoft
+    revision: 07163b72af1488142a360786df853f237b1a3ca1
+    seq_len: 32768
+    size: 7111
+  intfloat/multilingual-e5-large-instruct:
+    desc: multilingual-e5-large-instruct by Microsoft
+    dim: 1024
+    instruction_clustering: Identify the topic/theme/category of the text
+    instruction_query_arxiv: Given a query, retrieve a relevant paper title and abstract
+      from arXiv
+    instruction_query_stackexchange: Given a query, retrieve a relevant question and
+      answer from Stack Exchange
+    instruction_query_wikipedia: Given a query, retrieve a relevant title and passage
+      from Wikipedia
+    instruction_sts: Retrieve semantically similar text
+    license: MIT License
+    link: https://huggingface.co/intfloat/multilingual-e5-large-instruct
+    mteb_clustering: 47.1
+    mteb_overall: 64.41
+    mteb_retrieval: 52.47
+    mteb_sts: 84.78
+    organization: Microsoft
+    revision: baa7be480a7de1539afce709c8f13f833a510e0a
+    seq_len: 514
+    size: 560
+  jinaai/jina-embeddings-v2-base-en:
+    desc: jina-embeddings-v2-base-en by Jina AI
+    dim: 768
+    license: Apache 2.0
+    link: https://huggingface.co/jinaai/jina-embeddings-v2-base-en
+    mteb_clustering: 41.73
+    mteb_overall: 60.38
+    mteb_retrieval: 47.87
+    mteb_sts: 80.7
+    organization: Jina AI
+    revision: 31b72fbf354fea65264ec54edf0b189d94b92d39
+    seq_len: 8192
+    size: 137
+  mixedbread-ai/mxbai-embed-large-v1:
+    desc: mxbai-embed-large-v1 by mixedbread.ai
+    dim: 1024
+    license: Apache 2.0
+    link: https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1
+    mteb_clustering: 46.71
+    mteb_overall: 64.68
+    mteb_retrieval: 54.39
+    mteb_sts: 85.0
+    organization: mixedbread.ai
+    revision: 990580e27d329c7408b3741ecff85876e128e203
+    seq_len: 512
+    size: 335
+  nomic-ai/nomic-embed-text-v1.5:
+    desc: nomic-embed-text-v1.5 by nomic.ai
+    dim: 768
+    license: Apache 2.0
+    link: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5
+    mteb_clustering: 43.93
+    mteb_overall: 62.28
+    mteb_retrieval: 53.01
+    mteb_sts: 81.94
+    organization: nomic.ai
+    revision: b0753ae76394dd36bcfb912a46018088bca48be0
+    seq_len: 8192
+    size: 137
+  sentence-transformers/all-MiniLM-L6-v2:
+    desc: all-MiniLM-L6-v2 by Sentence Transformers
+    dim: 384
+    license: Apache 2.0
+    link: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+    mteb_clustering: 42.35
+    mteb_overall: 56.26
+    mteb_retrieval: 41.95
+    mteb_sts: 78.9
+    organization: Sentence Transformers
+    revision: 8b3219a92973c328a8e22fadcfa821b5dc75636a
+    seq_len: 512
+    size: 23
+  text-embedding-004:
+    desc: text-embedding-004 by Google
+    dim: 768
+    license: Proprietary
+    link: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/text-embeddings-api
+    mteb_clustering: 47.48
+    mteb_overall: 66.31
+    mteb_retrieval: 55.7
+    mteb_sts: 85.07
+    organization: Google
+    revision: '1'
+    seq_len: 2048
+  text-embedding-3-large:
+    desc: text-embedding-3-large by OpenAI
+    dim: 3072
+    license: Proprietary
+    link: https://platform.openai.com/docs/guides/embeddings
+    mteb_clustering: 49.01
+    mteb_overall: 64.59
+    mteb_retrieval: 55.44
+    mteb_sts: 81.73
+    organization: OpenAI
+    revision: '1'
+    seq_len: 8191
+  voyage-multilingual-2:
+    desc: voyage-multilingual-2 by Voyage AI
+    dim: 1024
+    license: Proprietary
+    link: https://docs.voyageai.com/docs/embeddings
+    organization: Voyage AI
+    revision: '1'
+    seq_len: 32000

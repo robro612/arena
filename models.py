@@ -9,6 +9,7 @@ import torch
 from typing import Optional
 from loguru import logger
 from log_utils import build_logger
+from dotenv import load_dotenv
 from retrieval.index import build_index, load_or_initialize_index
 from retrieval.index import DistributedIndex
 from retrieval.gcp_index import VertexIndex
@@ -18,6 +19,8 @@ from clustering_samples import CLUSTERING_CATEGORIES
 
 # logger = build_logger("model_logger", "model_logger.log")
 logger.disable("")
+
+load_dotenv()
 
 # If 8 GPUs
 MODEL_TO_CUDA_DEVICE = {
@@ -113,6 +116,7 @@ class ModelManager:
                         device += ":" + MODEL_TO_CUDA_DEVICE[model_name]
 
             logger.info(f"Loading {model_name} on {device=}")
+            print(f"Loading {model_name} on {device=}")
             model = mteb.get_model(
                 model_name,
                 revision=self.model_meta[model_name].get("revision", None),
@@ -274,11 +278,13 @@ class ModelManager:
             # logger.info(f"Loading time: {z - y}")
             docs = index.search(query_embeds=query_embed.tolist(), topk=topk)
             # logger.info(f"Search time: {time.time() - z}")
-            docs = [[query, corpus_format.format(title=docs[0].get("title", ""), text=docs[0]["text"])]]
+            # Format all topk documents
+            docs = [[query, corpus_format.format(title=doc.get("title", ""), text=doc["text"])] for doc in docs]
         else:
             index = self.load_local_index(model_name, corpus)
             docs, scores = index.search_knn(query_embed, topk=topk)
-            docs = [[query, corpus_format.format(title=docs[0].get("title", ""), text=docs[0][0]["text"])]]
+            # Format all topk documents
+            docs = [[query, corpus_format.format(title=doc.get("title", ""), text=doc["text"])] for doc in docs[0]]
         return docs
     
     def clustering_parallel(self, prompt, model_A, model_B, ncluster=1, ndim="3D", dim_method="PCA", clustering_method="KMeans"):

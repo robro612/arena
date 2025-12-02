@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MODEL_NAME="intfloat/e5-mistral-7b-instruct"
+MODEL_NAME="Alibaba-NLP/gte-Qwen2-7B-instruct"
 NUM_SHARDS=400
 NUM_NODES=4
 BATCH_SIZE=1024

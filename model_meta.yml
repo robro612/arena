@@ -123,6 +123,7 @@ model_meta:
     mteb_retrieval: 60.25
     mteb_sts: 83.04
     mteb_clustering: 56.92
+    dtype: float16
   Salesforce/SFR-Embedding-2_R:
     link: https://huggingface.co/Salesforce/SFR-Embedding-2_R
     revision: 91762139d94ed4371a9fa31db5551272e0b83818
